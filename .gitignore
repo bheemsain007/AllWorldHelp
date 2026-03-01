@@ -1,0 +1,32 @@
+# =============================================
+# Fellow Traveler — .gitignore
+# =============================================
+
+# Config files with credentials (NEVER commit these)
+config/database.php
+config/smtp_config.php
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Uploaded user files
+uploads/
+!uploads/.gitkeep
+
+# PHP logs and cache
+*.log
+logs/
+cache/
+
+# OS & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Backup files
+backups/
+*.sql.gz
+*.sql.bak

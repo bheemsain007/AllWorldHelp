@@ -1,0 +1,452 @@
+==============================================================================
+FELLOW TRAVELER PLATFORM - TABLE RELATIONSHIPS
+Task T1 - Database Schema Documentation
+Version: 1.0 | Date: February 2026
+==============================================================================
+
+This document explains every foreign key relationship in the Fellow Traveler
+database. Understanding these relationships is critical before inserting any
+data, as parent tables must have data before child tables can reference them.
+
+==============================================================================
+SECTION 1: RELATIONSHIP OVERVIEW (25 Tables)
+==============================================================================
+
+TABLE CREATION ORDER (safe insertion order, no FK violations):
+  1.  ft_coin_levels            (no dependencies)
+  2.  ft_users                  (no dependencies)
+  3.  ft_sessions               → ft_users
+  4.  ft_kyc_documents          → ft_users
+  5.  ft_activity_logs          → ft_users
+  6.  ft_trips                  → ft_users
+  7.  ft_bookmarks              → ft_users, ft_trips
+  8.  ft_connections            → ft_users (x2)
+  9.  ft_followers              → ft_users (x2)
+  10. ft_messages               → ft_users (x2), ft_trips
+  11. ft_reviews                → ft_trips, ft_users
+  12. ft_notifications          → ft_users
+  13. ft_stories                → ft_users, ft_trips
+  14. ft_story_likes            → ft_stories, ft_users
+  15. ft_destinations           (no dependencies)
+  16. ft_reports                → ft_users (x2), ft_trips
+  17. ft_blocked_users          → ft_users (x2)
+  18. ft_faqs                   (no dependencies)
+  19. ft_admin_settings         (no dependencies)
+  20. ft_coin_plans             (no dependencies)
+  21. ft_user_coins             → ft_users, ft_coin_levels
+  22. ft_coin_transactions      → ft_users, ft_coin_plans
+  23. ft_coin_rewards           (no dependencies)
+  24. ft_coin_redemptions       → ft_users, ft_coin_rewards
+  25. ft_referrals              → ft_users (x2)
+
+==============================================================================
+SECTION 2: DETAILED RELATIONSHIPS PER TABLE
+==============================================================================
+
+------------------------------------------------------------------------------
+TABLE: ft_sessions
+Purpose: Tracks active login sessions for users
+------------------------------------------------------------------------------
+  PARENT: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_sessions_user
+    On Delete:   CASCADE  (user deleted → all their sessions deleted)
+    On Update:   CASCADE
+
+  Rule: A session cannot exist without a valid user.
+        When a user is deleted, all their sessions are automatically removed.
+
+------------------------------------------------------------------------------
+TABLE: ft_kyc_documents
+Purpose: Identity documents uploaded by users for KYC verification
+------------------------------------------------------------------------------
+  PARENT: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_kyc_user
+    On Delete:   CASCADE  (user deleted → their KYC docs deleted)
+    On Update:   CASCADE
+
+  Rule: KYC documents belong to one user. Deleting a user removes their docs.
+
+------------------------------------------------------------------------------
+TABLE: ft_activity_logs
+Purpose: Audit trail of all user actions on the platform
+------------------------------------------------------------------------------
+  PARENT: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_logs_user
+    On Delete:   SET NULL (user deleted → logs preserved, user_id set NULL)
+    On Update:   CASCADE
+
+  Rule: Logs are preserved for audit purposes even if the user is deleted.
+        The user_id becomes NULL but the log record remains intact.
+
+------------------------------------------------------------------------------
+TABLE: ft_trips
+Purpose: Trip listings created by users
+------------------------------------------------------------------------------
+  PARENT: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_trips_user
+    On Delete:   CASCADE  (user deleted → their trips deleted)
+    On Update:   CASCADE
+
+  Rule: A trip must have a creator. Deleting a user removes all their trips.
+        Note: Deleting trips cascades further to bookmarks, reviews, messages.
+
+------------------------------------------------------------------------------
+TABLE: ft_bookmarks
+Purpose: Users saving/bookmarking trips they are interested in
+------------------------------------------------------------------------------
+  PARENT 1: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_bookmarks_user
+    On Delete:   CASCADE  (user deleted → their bookmarks deleted)
+    On Update:   CASCADE
+
+  PARENT 2: ft_trips
+    Column:      trip_id → ft_trips.trip_id
+    Constraint:  fk_bookmarks_trip
+    On Delete:   CASCADE  (trip deleted → all bookmarks for it deleted)
+    On Update:   CASCADE
+
+  Rule: A bookmark links exactly one user to exactly one trip.
+        UNIQUE constraint on (user_id, trip_id) prevents duplicate bookmarks.
+
+------------------------------------------------------------------------------
+TABLE: ft_connections
+Purpose: Social connection requests between users (friend system)
+------------------------------------------------------------------------------
+  PARENT 1: ft_users (sender)
+    Column:      sender_id → ft_users.user_id
+    Constraint:  fk_connections_sender
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_users (receiver)
+    Column:      receiver_id → ft_users.user_id
+    Constraint:  fk_connections_receiver
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  Rule: Both users must exist. A connection is directional (sender → receiver).
+        Status transitions: pending → accepted / rejected / withdrawn.
+        UNIQUE constraint on (sender_id, receiver_id) prevents duplicate requests.
+
+------------------------------------------------------------------------------
+TABLE: ft_followers
+Purpose: Follow system - users following other users
+------------------------------------------------------------------------------
+  PARENT 1: ft_users (the person being followed)
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_followers_user
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_users (the person who follows)
+    Column:      follower_user_id → ft_users.user_id
+    Constraint:  fk_followers_follower
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  Rule: Differs from connections - following is one-directional (no approval needed).
+        UNIQUE on (user_id, follower_user_id) prevents following someone twice.
+
+------------------------------------------------------------------------------
+TABLE: ft_messages
+Purpose: Private direct messages between users
+------------------------------------------------------------------------------
+  PARENT 1: ft_users (sender)
+    Column:      sender_id → ft_users.user_id
+    Constraint:  fk_messages_sender
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_users (receiver)
+    Column:      receiver_id → ft_users.user_id
+    Constraint:  fk_messages_receiver
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 3: ft_trips (optional context)
+    Column:      trip_id → ft_trips.trip_id
+    Constraint:  fk_messages_trip
+    On Delete:   SET NULL  (trip deleted → messages kept, trip_id set NULL)
+    On Update:   CASCADE
+
+  Rule: Messages are kept even if the related trip is deleted (trip_id = NULL).
+        Messages are deleted if either the sender or receiver is deleted.
+
+------------------------------------------------------------------------------
+TABLE: ft_reviews
+Purpose: Reviews and ratings written by users about trips
+------------------------------------------------------------------------------
+  PARENT 1: ft_trips
+    Column:      trip_id → ft_trips.trip_id
+    Constraint:  fk_reviews_trip
+    On Delete:   CASCADE  (trip deleted → its reviews deleted)
+    On Update:   CASCADE
+
+  PARENT 2: ft_users (reviewer)
+    Column:      reviewer_id → ft_users.user_id
+    Constraint:  fk_reviews_reviewer
+    On Delete:   CASCADE  (user deleted → their reviews deleted)
+    On Update:   CASCADE
+
+  Rule: One user can write only one review per trip (UNIQUE on trip_id + reviewer_id).
+        Rating must be 1-5. Reviews cascade-delete when trip or user is deleted.
+
+------------------------------------------------------------------------------
+TABLE: ft_notifications
+Purpose: In-app alerts and notification center for users
+------------------------------------------------------------------------------
+  PARENT: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_notifications_user
+    On Delete:   CASCADE  (user deleted → their notifications deleted)
+    On Update:   CASCADE
+
+  Rule: related_id and related_type are soft references (no FK constraint),
+        allowing notifications to reference various entity types flexibly.
+
+------------------------------------------------------------------------------
+TABLE: ft_stories
+Purpose: Travel blog posts / stories written by users
+------------------------------------------------------------------------------
+  PARENT 1: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_stories_user
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_trips (optional)
+    Column:      trip_id → ft_trips.trip_id
+    Constraint:  fk_stories_trip
+    On Delete:   SET NULL  (trip deleted → story kept, trip link removed)
+    On Update:   CASCADE
+
+  Rule: A story can optionally be linked to a trip. If the trip is deleted,
+        the story remains but loses its trip association (trip_id = NULL).
+
+------------------------------------------------------------------------------
+TABLE: ft_story_likes
+Purpose: Tracks which users liked which stories
+------------------------------------------------------------------------------
+  PARENT 1: ft_stories
+    Column:      story_id → ft_stories.story_id
+    Constraint:  fk_story_likes_story
+    On Delete:   CASCADE  (story deleted → all its likes deleted)
+    On Update:   CASCADE
+
+  PARENT 2: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_story_likes_user
+    On Delete:   CASCADE  (user deleted → their likes deleted)
+    On Update:   CASCADE
+
+  Rule: UNIQUE on (story_id, user_id) ensures one like per user per story.
+        likes_count in ft_stories should be updated via trigger or application code.
+
+------------------------------------------------------------------------------
+TABLE: ft_reports
+Purpose: User and trip abuse/spam reports for admin moderation
+------------------------------------------------------------------------------
+  PARENT 1: ft_users (reporter)
+    Column:      reporter_id → ft_users.user_id
+    Constraint:  fk_reports_reporter
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_users (reported user - optional)
+    Column:      reported_user_id → ft_users.user_id
+    Constraint:  fk_reports_reported_user
+    On Delete:   SET NULL  (reported user deleted → report kept for records)
+    On Update:   CASCADE
+
+  PARENT 3: ft_trips (reported trip - optional)
+    Column:      reported_trip_id → ft_trips.trip_id
+    Constraint:  fk_reports_reported_trip
+    On Delete:   SET NULL  (reported trip deleted → report kept for records)
+    On Update:   CASCADE
+
+  Rule: A report must target either a user OR a trip (or both).
+        Reports are preserved even after the reported entity is deleted (audit trail).
+
+------------------------------------------------------------------------------
+TABLE: ft_blocked_users
+Purpose: User block list - preventing interactions with specific users
+------------------------------------------------------------------------------
+  PARENT 1: ft_users (user who blocked)
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_blocked_user
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_users (user being blocked)
+    Column:      blocked_user_id → ft_users.user_id
+    Constraint:  fk_blocked_target
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  Rule: UNIQUE on (user_id, blocked_user_id) prevents duplicate block entries.
+        Both records are removed if either user deletes their account.
+
+------------------------------------------------------------------------------
+TABLE: ft_user_coins
+Purpose: Individual coin wallet/balance for each user
+------------------------------------------------------------------------------
+  PARENT 1: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_user_coins_user
+    On Delete:   CASCADE  (user deleted → their wallet deleted)
+    On Update:   CASCADE
+
+  PARENT 2: ft_coin_levels
+    Column:      level_id → ft_coin_levels.level_id
+    Constraint:  fk_user_coins_level
+    On Delete:   SET NULL  (level deleted → wallet kept, level_id set NULL)
+    On Update:   CASCADE
+
+  Rule: UNIQUE on user_id means each user has exactly one wallet.
+        Level is determined by total_coins earned (see ft_coin_levels thresholds).
+        Application should auto-upgrade level when coins_earned crosses threshold.
+
+------------------------------------------------------------------------------
+TABLE: ft_coin_transactions
+Purpose: Complete ledger of all coin credits and debits
+------------------------------------------------------------------------------
+  PARENT 1: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_coin_tx_user
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_coin_plans (optional)
+    Column:      plan_id → ft_coin_plans.plan_id
+    Constraint:  fk_coin_tx_plan
+    On Delete:   SET NULL  (plan deleted → transaction preserved, plan_id = NULL)
+    On Update:   CASCADE
+
+  Rule: Every coin earn/spend creates one transaction record.
+        balance_after must be updated at insert time by application code.
+        Positive coins = earned, Negative coins = spent.
+
+------------------------------------------------------------------------------
+TABLE: ft_coin_redemptions
+Purpose: History of users redeeming coins for rewards
+------------------------------------------------------------------------------
+  PARENT 1: ft_users
+    Column:      user_id → ft_users.user_id
+    Constraint:  fk_redemptions_user
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_coin_rewards
+    Column:      reward_id → ft_coin_rewards.reward_id
+    Constraint:  fk_redemptions_reward
+    On Delete:   RESTRICT  (cannot delete a reward that has been redeemed)
+    On Update:   CASCADE
+
+  Rule: On Delete RESTRICT means you cannot delete a reward that users have
+        already redeemed. This protects the redemption history integrity.
+
+------------------------------------------------------------------------------
+TABLE: ft_referrals
+Purpose: Referral program - tracking who referred whom
+------------------------------------------------------------------------------
+  PARENT 1: ft_users (referrer)
+    Column:      referrer_id → ft_users.user_id
+    Constraint:  fk_referrals_referrer
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  PARENT 2: ft_users (referee)
+    Column:      referee_id → ft_users.user_id
+    Constraint:  fk_referrals_referee
+    On Delete:   CASCADE
+    On Update:   CASCADE
+
+  Rule: UNIQUE on referee_id ensures each new user can only be referred once.
+        When status changes to 'completed', coins should be awarded to both
+        referrer and referee via ft_coin_transactions.
+
+==============================================================================
+SECTION 3: TABLES WITH NO FOREIGN KEYS (Stand-alone)
+==============================================================================
+
+  ft_coin_levels    - Lookup table, no FK. Must be populated FIRST.
+  ft_destinations   - Directory of popular places, standalone.
+  ft_faqs           - FAQ content, standalone.
+  ft_admin_settings - Platform config, standalone (pre-seeded with 22 rows).
+  ft_coin_plans     - Coin earning action definitions, standalone.
+  ft_coin_rewards   - Reward catalog, standalone.
+
+==============================================================================
+SECTION 4: CASCADE BEHAVIOR SUMMARY
+==============================================================================
+
+  ON DELETE CASCADE  → Child record deleted automatically with parent
+  ON DELETE SET NULL → Child record kept, FK column set to NULL
+  ON DELETE RESTRICT → Cannot delete parent if child records exist
+  ON UPDATE CASCADE  → Child FK updated automatically when parent PK changes
+
+  Table              | Cascade Behavior
+  -------------------|----------------------------------------------------
+  ft_sessions        | CASCADE (user deleted → sessions gone)
+  ft_kyc_documents   | CASCADE (user deleted → docs gone)
+  ft_activity_logs   | SET NULL (logs preserved for audit)
+  ft_trips           | CASCADE (user deleted → trips gone)
+  ft_bookmarks       | CASCADE (user OR trip deleted → bookmark gone)
+  ft_connections     | CASCADE (user deleted → connections gone)
+  ft_followers       | CASCADE (user deleted → follows gone)
+  ft_messages        | CASCADE user, SET NULL trip
+  ft_reviews         | CASCADE (trip OR user deleted → review gone)
+  ft_notifications   | CASCADE (user deleted → notifications gone)
+  ft_stories         | CASCADE user, SET NULL trip
+  ft_story_likes     | CASCADE (story OR user deleted → like gone)
+  ft_reports         | CASCADE reporter, SET NULL reported entities
+  ft_blocked_users   | CASCADE (either user deleted → block entry gone)
+  ft_user_coins      | CASCADE user, SET NULL level
+  ft_coin_transactions | CASCADE user, SET NULL plan
+  ft_coin_redemptions | CASCADE user, RESTRICT reward
+  ft_referrals       | CASCADE (either user deleted → referral gone)
+
+==============================================================================
+SECTION 5: ENTITY RELATIONSHIP SUMMARY DIAGRAM (TEXT)
+==============================================================================
+
+  ft_coin_levels
+       |
+       └── ft_user_coins ──────────────┐
+                                       │
+  ft_users (CORE) ────────────────────>│
+       │                               │
+       ├── ft_sessions                 │
+       ├── ft_kyc_documents            │
+       ├── ft_activity_logs            │
+       │                               │
+       ├── ft_trips ──────────────────>│
+       │       │                       │
+       │       ├── ft_bookmarks <──────┤ (also user)
+       │       ├── ft_reviews  <───────┤ (also user)
+       │       ├── ft_messages <───────┤ (also user x2)
+       │       └── ft_stories  <───────┤ (also user)
+       │               │
+       │               └── ft_story_likes <── ft_users
+       │
+       ├── ft_connections (user x2 self-referential)
+       ├── ft_followers   (user x2 self-referential)
+       ├── ft_notifications
+       ├── ft_reports     (user x2 + trip)
+       ├── ft_blocked_users (user x2)
+       ├── ft_referrals   (user x2)
+       └── ft_coin_transactions ── ft_coin_plans
+               │
+               └── ft_coin_redemptions ── ft_coin_rewards
+
+  Standalone: ft_destinations, ft_faqs, ft_admin_settings
+
+==============================================================================
+END OF RELATIONSHIPS DOCUMENT
+Total Relationships (Foreign Keys): 29
+==============================================================================
